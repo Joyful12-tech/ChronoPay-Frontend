@@ -1,13 +1,22 @@
-"use client";
-
-import { use, useState, useCallback, useEffect, useRef } from "react";
-import Link from "next/link";
-import { DashboardShell } from "@/app/components/dashboard-shell";
-import { BreadcrumbOverflow } from "@/app/components/ui/breadcrumb-overflow";
-import { StatusChip } from "@/components/dashboard/status-chip";
-import { OrderSummaryDrawer } from "@/components/dashboard/order-summary-drawer";
+import type { Metadata } from "next";
 import { slots as mockSlots } from "@/components/dashboard/dashboard-data";
-import { ReceiptModal } from "@/components/receipt";
+import SlotDetailClient from "./slot-detail-client";
+
+export const metadata = ({ params }: { params: Promise<{ id: string }> }) => {
+  return new Promise<Metadata>((resolve) => {
+    params.then(({ id }) => {
+      const slot = mockSlots.find((s) => s.id === id) || mockSlots[0];
+      resolve({
+        title: slot.title,
+        description: `Book ${slot.title} — ${slot.dateLabel}, ${slot.timeRange}. ${slot.demand} interested.`,
+        robots: {
+          index: false,
+          follow: false,
+        },
+      });
+    });
+  });
+import { ReceiptModal, buildReceipt } from "@/components/receipt";
 import { RedeemTokenModal } from "@/components/dashboard/redeem-token-modal";
 import type { ReceiptData } from "@/components/receipt";
 import { PromoCodeEntry } from "@/app/components/ui/promo-code-entry";
@@ -16,6 +25,7 @@ import type { GiftDetails } from "@/components/dashboard/gift-purchase-toggle";
 import { BookingAbandonmentBanner } from "@/components/dashboard/booking-abandonment-banner";
 import { DisputeFilingForm, type DisputeFormData } from "@/app/components/dispute-filing-form";
 import { DisputeTrackingPanel, type Dispute } from "@/app/components/dispute-tracking-panel";
+import { FocusTrap } from "@/components/common/FocusTrap";
 import {
   ArrowLeft,
   Wallet,
@@ -34,10 +44,6 @@ import {
   Scale,
   X
 } from "lucide-react";
-
-function FocusTrap({ children }: { children: React.ReactNode }) {
-  return <>{children}</>;
-}
 
 // Robust metadata/details mapper for slots
 const slotDetailsMap: Record<
@@ -112,11 +118,13 @@ const slotDetailsMap: Record<
   },
 };
 
-export default function SlotDetailPage({
+export default async function SlotDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const { id } = await params;
+  return <SlotDetailClient id={id} />;
   const resolvedParams = use(params);
   const id = resolvedParams.id;
 
@@ -144,6 +152,18 @@ export default function SlotDetailPage({
 
   const [discountPercent, setDiscountPercent] = useState(0);
   const [discountedTotal, setDiscountedTotal] = useState(totalCost);
+  const [promoCode, setPromoCode] = useState("");
+
+  // Snapshot charged amounts at purchase time so subsequent edits cannot alter settled receipts
+  const [chargedSnapshot, setChargedSnapshot] = useState<{
+    subtotal: number;
+    escrowFee: number;
+    stellarFee: number;
+    totalCost: number;
+    effectiveTotalCost: number;
+    discountPercent: number;
+    promoCode: string;
+  } | null>(null);
 
   useEffect(() => {
     // Reset discount state when the slot or total price changes. Deferred so
@@ -151,6 +171,7 @@ export default function SlotDetailPage({
     window.setTimeout(() => {
       setDiscountPercent(0);
       setDiscountedTotal(totalCost);
+      setPromoCode("");
     }, 0);
   }, [id, totalCost]);
 
@@ -240,6 +261,7 @@ export default function SlotDetailPage({
   const handleResumeDraft = () => {
     setHasDraft(false);
     if (!isWalletReady || !hasFunds) return;
+    lastActiveElementRef.current = document.activeElement as HTMLElement;
     setPurchaseStep("auth");
     setIsModalOpen(true);
   };
@@ -253,6 +275,7 @@ export default function SlotDetailPage({
 
   const handleViewDetails = () => {
     if (!isWalletReady || !hasFunds) return;
+    lastActiveElementRef.current = document.activeElement as HTMLElement;
     setPurchaseStep("auth");
     setIsModalOpen(true);
   };
@@ -262,37 +285,38 @@ export default function SlotDetailPage({
   const isSettled = purchaseStep === "success" && txHash !== "";
 
   const receipt: ReceiptData | null = isSettled
-    ? {
-        id: slot.id,
-        assetCode: `CHRONO-${slot.id.toUpperCase()}`,
-        title: slot.title,
-        status: "settled",
-        settledAt: `${slot.dateLabel} · ${slot.timeRange}`,
-        buyer: { name: "You", role: "Buyer", address: mockAddress },
-        seller: { name: details.seller.name, role: details.seller.role },
-        lineItems: [
-          { label: "Token subtotal", value: `${subtotal.toFixed(2)} XLM`, note: `${slot.rate} × ${details.durationHours} hrs` },
-          { label: "Smart escrow fee", value: `${escrowFee.toFixed(4)} XLM`, note: "1.5% held in contract" },
-          { label: "Stellar network fee", value: `${stellarFee.toFixed(4)} XLM`, note: "Paid to validators" },
-        ],
-        net: `${subtotal.toFixed(2)} XLM`,
-        total: `${totalCost.toFixed(4)} XLM`,
+    ? buildReceipt({
+        slot: {
+          id: slot.id,
+          title: slot.title,
+          rate: slot.rate,
+          dateLabel: slot.dateLabel,
+          timeRange: slot.timeRange,
+        },
+        seller: {
+          name: details.seller.name,
+          role: details.seller.role,
+        },
+        durationHours: details.durationHours,
+        subtotal: chargedSnapshot?.subtotal ?? subtotal,
+        escrowFee: chargedSnapshot?.escrowFee ?? escrowFee,
+        stellarFee: chargedSnapshot?.stellarFee ?? stellarFee,
+        totalCost: chargedSnapshot?.totalCost ?? totalCost,
+        effectiveTotalCost: chargedSnapshot?.effectiveTotalCost ?? effectiveTotalCost,
+        discountPercent: chargedSnapshot?.discountPercent ?? discountPercent,
+        promoCode: chargedSnapshot?.promoCode ?? promoCode,
         txHash,
-        escrowContract: "GCSW67F2Y3MQK4N8Q5RLP9TZB3YH4W8F1S7N6U0X2A5V8T9H3K2",
-        trace: [
-          { label: "Stellar transaction initiated", status: "complete" },
-          { label: "Trustline established for asset", status: "complete" },
-          { label: "Funds locked in multi-sig escrow", status: "complete" },
-          { label: "Token minted and funds released", status: "complete" },
-        ],
-        explorerBaseUrl: "https://stellar.expert/explorer/public/tx",
-      }
+        mockAddress,
+      })
     : null;
   
   // Refs for accessibility / focus trap
   const modalRef = useRef<HTMLDivElement>(null);
+  const disputeModalRef = useRef<HTMLDivElement>(null);
   const purchaseBtnRef = useRef<HTMLButtonElement>(null);
+  const disputeBtnRef = useRef<HTMLButtonElement>(null);
   const lastActiveElementRef = useRef<HTMLElement | null>(null);
+  const disputeLastActiveElementRef = useRef<HTMLElement | null>(null);
 
   // Accessible Announcement utility
   const announce = (msg: string) => {
@@ -301,22 +325,40 @@ export default function SlotDetailPage({
 
   const handleOpenModal = () => {
     if (!isWalletReady || !hasFunds) return;
+    lastActiveElementRef.current = document.activeElement as HTMLElement;
     setPurchaseStep("auth");
     setIsModalOpen(true);
   };
 
+  const purchaseTimeoutsRef = useRef<NodeJS.Timeout[]>([]);
+
+  const clearPurchaseTimeouts = useCallback(() => {
+    purchaseTimeoutsRef.current.forEach((t) => clearTimeout(t));
+    purchaseTimeoutsRef.current = [];
+  }, []);
+
   const handleCloseModal = useCallback(() => {
+    clearPurchaseTimeouts();
     setIsModalOpen(false);
     setPurchaseStep("auth");
-  }, []);
+  }, [clearPurchaseTimeouts]);
+
+  // Clean up any pending purchase timeouts on unmount
+  useEffect(() => {
+    return () => {
+      clearPurchaseTimeouts();
+    };
+  }, [clearPurchaseTimeouts]);
 
   // Keyboard navigation & focus management inside checkout modal
   useEffect(() => {
     if (isModalOpen) {
-      lastActiveElementRef.current = document.activeElement as HTMLElement;
+      if (document.activeElement && !modalRef.current?.contains(document.activeElement)) {
+        lastActiveElementRef.current = document.activeElement as HTMLElement;
+      }
 
-      // Move focus to modal container
-      if (modalRef.current) {
+      // Move focus to modal container if focus didn't already enter inside the dialog
+      if (modalRef.current && !modalRef.current.contains(document.activeElement)) {
         modalRef.current.focus();
       }
       // Defer state update so it does not run synchronously inside the effect
@@ -326,25 +368,45 @@ export default function SlotDetailPage({
       return () => cancelAnimationFrame(raf);
     } else {
       // Restore focus
-      if (lastActiveElementRef.current) {
+      if (lastActiveElementRef.current && document.body.contains(lastActiveElementRef.current)) {
         lastActiveElementRef.current.focus();
       }
     }
   }, [isModalOpen]);
 
+  const handleCloseDisputeModal = useCallback(() => {
+    setIsDisputeModalOpen(false);
+    setCurrentDispute(null);
+  }, []);
+
   // Handle ESC key to close modal
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isModalOpen) {
-        handleCloseModal();
+      if (e.key === "Escape") {
+        if (isModalOpen) {
+          handleCloseModal();
+        }
+        if (isDisputeModalOpen) {
+          handleCloseDisputeModal();
+        }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isModalOpen, handleCloseModal]);
+  }, [isModalOpen, isDisputeModalOpen, handleCloseModal, handleCloseDisputeModal]);
 
   // Simulated blockchain transaction workflow
   const handleProceedPurchase = () => {
+    clearPurchaseTimeouts();
+    setChargedSnapshot({
+      subtotal,
+      escrowFee,
+      stellarFee,
+      totalCost,
+      effectiveTotalCost,
+      discountPercent,
+      promoCode,
+    });
     setPurchaseStep("loading");
     
     const steps = [
@@ -355,13 +417,14 @@ export default function SlotDetailPage({
     ];
 
     steps.forEach((step) => {
-      setTimeout(() => {
+      const id = setTimeout(() => {
         setLoadingMessage(step.text);
         announce(step.text);
       }, step.time);
+      purchaseTimeoutsRef.current.push(id);
     });
 
-    setTimeout(() => {
+    const completionId = setTimeout(() => {
       // Generate randomized Stellar-like txn hash for realism
       const randomHash = Array.from({ length: 16 }, () =>
         Math.floor(Math.random() * 16).toString(16)
@@ -370,6 +433,7 @@ export default function SlotDetailPage({
       setPurchaseStep("success");
       announce("Time token purchased successfully. Receipt ready.");
     }, 4000);
+    purchaseTimeoutsRef.current.push(completionId);
   };
 
   const handleSimulateConnection = () => {
@@ -379,6 +443,7 @@ export default function SlotDetailPage({
 
   // DISPUTE HANDLERS
   const handleOpenDisputeModal = () => {
+    disputeLastActiveElementRef.current = document.activeElement as HTMLElement;
     setDisputeView(existingDisputes.length > 0 ? "tracking" : "filing");
     if (existingDisputes.length > 0) {
       setCurrentDispute(existingDisputes[0]);
@@ -386,10 +451,28 @@ export default function SlotDetailPage({
     setIsDisputeModalOpen(true);
   };
 
-  const handleCloseDisputeModal = () => {
-    setIsDisputeModalOpen(false);
-    setCurrentDispute(null);
-  };
+  // Keyboard navigation & focus management inside dispute modal
+  useEffect(() => {
+    if (isDisputeModalOpen) {
+      if (document.activeElement && !disputeModalRef.current?.contains(document.activeElement)) {
+        disputeLastActiveElementRef.current = document.activeElement as HTMLElement;
+      }
+
+      // Move focus to modal container if focus didn't already enter inside the dialog
+      if (disputeModalRef.current && !disputeModalRef.current.contains(document.activeElement)) {
+        disputeModalRef.current.focus();
+      }
+      const raf = requestAnimationFrame(() => {
+        announce("Dispute modal opened. Press Tab to navigate.");
+      });
+      return () => cancelAnimationFrame(raf);
+    } else {
+      // Restore focus
+      if (disputeLastActiveElementRef.current && document.body.contains(disputeLastActiveElementRef.current)) {
+        disputeLastActiveElementRef.current.focus();
+      }
+    }
+  }, [isDisputeModalOpen]);
 
   const handleSubmitDispute = async (formData: DisputeFormData) => {
     setIsSubmittingDispute(true);
@@ -472,6 +555,8 @@ export default function SlotDetailPage({
     return "critical" as const;
   };
 
+  const isDialogOpen = isModalOpen || isDisputeModalOpen;
+
   return (
     <DashboardShell>
       {/* Screen Reader Live Announcer */}
@@ -479,7 +564,11 @@ export default function SlotDetailPage({
         {announcement}
       </div>
 
-      <div className="space-y-6">
+      <div
+        className="space-y-6"
+        inert={isDialogOpen ? true : undefined}
+        aria-hidden={isDialogOpen ? true : undefined}
+      >
         {hasDraft && (
           <BookingAbandonmentBanner
             onResume={handleResumeDraft}
@@ -831,7 +920,8 @@ export default function SlotDetailPage({
 
               <PromoCodeEntry
                 baseTotal={totalCost}
-                onDiscountApplied={({ percent, discountedTotal: nextTotal }) => {
+                onDiscountApplied={({ code, percent, discountedTotal: nextTotal }) => {
+                  setPromoCode(code);
                   setDiscountPercent(percent);
                   setDiscountedTotal(nextTotal);
                 }}
@@ -895,6 +985,7 @@ export default function SlotDetailPage({
                   {/* Dispute Button */}
                   {existingDisputes.length > 0 && (
                     <button
+                      ref={disputeBtnRef}
                       type="button"
                       onClick={handleOpenDisputeModal}
                       className="w-full flex items-center justify-center rounded-full font-bold transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 px-5 py-3 text-sm border border-amber-400/30 bg-amber-400/10 text-amber-200 hover:bg-amber-400/20 mt-3"
@@ -1176,7 +1267,7 @@ export default function SlotDetailPage({
 
                     <div className="flex justify-between border-t border-white/5 pt-3.5">
                       <span className="text-slate-400">Total Locked</span>
-                      <span className="font-bold text-white">{effectiveTotalCost.toFixed(4)} XLM</span>
+                      <span className="font-bold text-white">{(chargedSnapshot?.effectiveTotalCost ?? effectiveTotalCost).toFixed(4)} XLM</span>
                     </div>
                   </div>
 
@@ -1239,7 +1330,7 @@ export default function SlotDetailPage({
         >
           <FocusTrap>
             <div
-              ref={modalRef}
+              ref={disputeModalRef}
               tabIndex={-1}
               role="dialog"
               aria-modal="true"

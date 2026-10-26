@@ -1,3 +1,14 @@
+import type { Metadata } from "next";
+import ReceiptClient from "./receipt-client";
+
+export const metadata: Metadata = {
+  title: "Receipt",
+  description: "Shared receipt view for a settled ChronoPay transaction.",
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
 "use client";
 
 /**
@@ -9,23 +20,32 @@
 
 import { use, useState, useEffect } from "react";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { ArrowLeft, ShieldCheck, LayoutDashboard, RefreshCw, AlertTriangle, Info } from "lucide-react";
 import { DashboardShell } from "@/app/components/dashboard-shell";
 import { BreadcrumbOverflow } from "@/app/components/ui/breadcrumb-overflow";
 import { StatusChip } from "@/components/dashboard/status-chip";
 import { Tooltip } from "@/app/components/ui/tooltip";
+import { mockSlots } from "@/components/dashboard/dashboard-data";
 
-type SharedReceiptPageProps = {
+export default function SharedReceiptPage({
+  params,
+  searchParams,
+}: {
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  return <ReceiptClient params={params} searchParams={searchParams} />;
 };
 
 const first = (value: string | string[] | undefined) =>
   (Array.isArray(value) ? value[0] : value) ?? "";
 
 export default function SharedReceiptPage({ params, searchParams }: SharedReceiptPageProps) {
-  use(params);
+  const { id } = use(params);
   const query = use(searchParams);
+
+  if (!mockSlots.some((slot) => slot.id === id)) notFound();
 
   const asset = first(query.asset);
   const tx = first(query.tx);

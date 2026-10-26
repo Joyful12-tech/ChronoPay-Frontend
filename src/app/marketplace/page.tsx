@@ -1,6 +1,15 @@
-"use client";
+import type { Metadata } from "next";
+import MarketplaceClient from "./marketplace-client";
 
+export const metadata: Metadata = {
+  title: "Marketplace",
+  description: "Browse and book time slots from suppliers worldwide",
+};
+
+export default function MarketplacePage() {
+  return <MarketplaceClient />;
 import { Suspense, useEffect, useMemo } from "react";
+import Link from "next/link";
 import {
   RecentlyViewedRail,
   useRecentlyViewed,
@@ -10,81 +19,7 @@ import {
   ResultsPerPageSelector,
   usePageSize,
 } from "@/components/marketplace/results-per-page-selector";
-
-// Demo marketplace items — the original 4 are kept for the RecentlyViewed
-// seeding so developers can see the rail populate on first visit. A larger
-// catalogue is generated for the grid to make the per-page selector
-// (12 / 24 / 48) visually meaningful.
-const seedItems = [
-  {
-    id: "demo-1",
-    title: "1 Hour Technical Consultation",
-    price: "50 XLM",
-    image: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=400&h=300&fit=crop",
-    href: "/marketplace",
-  },
-  {
-    id: "demo-2",
-    title: "30 Minute Design Review",
-    price: "25 XLM",
-    image: "https://images.unsplash.com/photo-1551434678-e076c223a692?w=400&h=300&fit=crop",
-    href: "/marketplace",
-  },
-  {
-    id: "demo-3",
-    title: "2 Hour Strategy Session",
-    price: "100 XLM",
-    image: "https://images.unsplash.com/photo-1552664730-d307ca884978?w=400&h=300&fit=crop",
-    href: "/marketplace",
-  },
-  {
-    id: "demo-4",
-    title: "15 Minute Quick Call",
-    price: "15 XLM",
-    image: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=400&h=300&fit=crop",
-    href: "/marketplace",
-  },
-];
-
-const SERVICE_TITLES = [
-  "Quick Brand Identity Audit",
-  "Async Code Review",
-  "Architecture Diagram Cleanup",
-  "30 Minute UX Critique",
-  "Hourly Rate Negotiation",
-  "Stellar Wallet Setup Walkthrough",
-  "Resume Polish",
-  "Speed-reading Workshop",
-  "Discord Community AMA",
-  "1:1 Founder Office Hours",
-  "Pitch Deck Storytelling",
-  "Smart-Contract Audit (Sample)",
-  "Pricing Strategy Consultation",
-  "Quarterly Planning Helper",
-  "Lead-Magnet Feedback",
-  "Landing Page Conversion Review",
-  "Async Translation Pass",
-  "AI Prompt Iteration Session",
-  "Personal Finance Tune-up",
-  "Demo Day Prep Coaching",
-];
-const PRICE_BAND = ["10 XLM", "20 XLM", "25 XLM", "35 XLM", "50 XLM", "75 XLM", "100 XLM"];
-
-// Larger simulated catalogue — 50 items so the 12 / 24 / 48 options all
-// produce visibly different pages.
-function buildCatalogue(): (typeof seedItems)[number][] {
-  const out = [...seedItems];
-  for (let i = 0; i < 46; i++) {
-    out.push({
-      id: `svc-${i + 1}`,
-      title: SERVICE_TITLES[i % SERVICE_TITLES.length],
-      price: PRICE_BAND[i % PRICE_BAND.length],
-      image: "https://images.unsplash.com/photo-1551434678-e076c223a692?w=400&h=300&fit=crop",
-      href: "/marketplace",
-    });
-  }
-  return out;
-}
+import { buildCatalogue, seedItems } from "./catalogue";
 
 function MarketplaceGrid() {
   const { value, setValue } = usePageSize();
@@ -106,9 +41,9 @@ function MarketplaceGrid() {
       >
         {visible.map((item) => (
           <li key={item.id}>
-            <a
+            <Link
               href={item.href}
-              onClick={() => addItem(item)}
+              onClick={() => addItem({ ...item, href: `/marketplace/${item.id}` })}
               className="card card--interactive group flex h-full flex-col"
             >
               {item.image ? (
@@ -136,7 +71,7 @@ function MarketplaceGrid() {
                 </h3>
                 <p className="mt-2 text-sm text-zinc-400">{item.price}</p>
               </div>
-            </a>
+            </Link>
           </li>
         ))}
       </ol>
