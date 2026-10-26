@@ -8,6 +8,7 @@ import { Menu, X, Shield, Keyboard, Settings, Search } from "lucide-react";
 import { useRole } from "@/app/components/navigation/RoleContext";
 import { RoleOnboardingDialog } from "@/app/components/navigation/role-onboarding-dialog";
 import { getNavForRole, ROLE_META, type NavItem } from "@/app/components/navigation/role-nav";
+import { isNavItemActive } from "@/app/components/navigation/is-nav-item-active";
 import { HeaderSearch } from "@/app/components/header-search";
 import { KeyboardShortcutsOverlay } from "@/app/components/keyboard-shortcuts-overlay";
 import { AccountSwitcher } from "@/app/components/account-switcher";
@@ -15,6 +16,22 @@ import { RoleChip } from "@/app/components/ui/RoleChip";
 import { OfflineQueueIndicator } from "@/app/components/offline-queue-indicator";
 import { ContextualKeysPanel } from "@/app/components/ui/contextual-keys-panel";
 import { CommandPalette } from "@/app/components/command-palette";
+
+const DESKTOP_QUERY = "(min-width: 1024px)";
+
+/** True at the lg breakpoint and above, where the nav rail is always visible. */
+function useIsDesktop() {
+  return useSyncExternalStore(
+    (cb) => {
+      if (typeof window === "undefined" || !window.matchMedia) return () => {};
+      const mql = window.matchMedia(DESKTOP_QUERY);
+      mql.addEventListener?.("change", cb);
+      return () => mql.removeEventListener?.("change", cb);
+    },
+    () => (typeof window !== "undefined" && window.matchMedia ? window.matchMedia(DESKTOP_QUERY).matches : true),
+    () => true,
+  );
+}
 
 function getOnlineStatus() {
   if (typeof navigator === "undefined") return true;
@@ -61,8 +78,18 @@ function SystemStatus() {
   );
 }
 
-function NavLink({ item, pathname, onClick }: { item: NavItem; pathname: string; onClick?: () => void }) {
-  const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+function NavLink({
+  item,
+  pathname,
+  allHrefs,
+  onClick,
+}: {
+  item: NavItem;
+  pathname: string;
+  allHrefs: string[];
+  onClick?: () => void;
+}) {
+  const isActive = isNavItemActive(pathname, item.href, allHrefs);
 
   return (
     <Link
@@ -75,8 +102,8 @@ function NavLink({ item, pathname, onClick }: { item: NavItem; pathname: string;
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2",
         "focus-visible:ring-offset-slate-950",
         isActive
-          ? "bg-white/10 text-white"
-          : "hover:bg-white/6 text-slate-400 hover:text-slate-200"
+          ? "bg-slate-500/10 text-cyan-600 dark:text-cyan-300"
+          : "hover:bg-slate-500/10 text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
       )}
       style={{
         backgroundColor: isActive ? "var(--shell-rail-active)" : undefined,
@@ -94,6 +121,8 @@ function NavLink({ item, pathname, onClick }: { item: NavItem; pathname: string;
 export function BottomNav({ items, pathname }: { items: NavItem[]; pathname: string }) {
   if (items.length === 0) return null;
 
+  const allHrefs = items.map((item) => item.href);
+
   return (
     <nav
       aria-label="Bottom navigation"
@@ -107,7 +136,7 @@ export function BottomNav({ items, pathname }: { items: NavItem[]; pathname: str
     >
       <div className="flex h-16 items-stretch">
         {items.map((item) => {
-          const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+          const isActive = isNavItemActive(pathname, item.href, allHrefs);
           return (
             <Link
               key={item.href}
@@ -158,8 +187,11 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const railToggleRef = useRef<HTMLButtonElement>(null);
   const railRef = useRef<HTMLDivElement>(null);
   const liveId = useId();
+  const isDesktop = useIsDesktop();
+  const isRailInert = !isDesktop && !isRailOpen;
 
   const navItems = getNavForRole(role);
+  const allHrefs = navItems.map((item) => item.href);
   const roleMeta = ROLE_META[role];
 
   useEffect(() => {
@@ -284,7 +316,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           {/* Desktop nav links inline in command bar — visible only on large screens */}
           <nav aria-label="Quick navigation" className="hidden lg:flex lg:items-center lg:gap-1">
             {navItems.slice(0, 3).map((item) => {
-              const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+              const isActive = isNavItemActive(pathname, item.href, allHrefs);
               return (
                 <Link
                   key={item.href}
@@ -295,8 +327,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                     "rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400",
                     isActive
-                      ? "text-white"
-                      : "hover:bg-white/6 text-slate-400 hover:text-slate-200"
+                      ? "text-cyan-600 dark:text-white"
+                      : "hover:bg-slate-500/10 text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
                   )}
                 >
                   {item.label}
@@ -330,12 +362,12 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                   "hidden items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors sm:flex",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2",
                   "focus-visible:ring-offset-slate-950",
-                  "hover:bg-white/6 border-white/10 text-slate-400 hover:text-white"
+                  "hover:bg-slate-500/10 border-slate-300/30 dark:border-white/10 text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
                 )}
               >
                 <Search className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                 <span>Search…</span>
-                <kbd className="ml-1 hidden rounded border border-white/10 bg-white/5 px-1 py-0.5 font-mono text-[10px] leading-none text-slate-500 sm:inline">
+                <kbd className="ml-1 hidden rounded border border-slate-300/30 dark:border-white/10 bg-slate-500/10 px-1 py-0.5 font-mono text-[10px] leading-none text-slate-500 dark:text-slate-400 sm:inline">
                   ⌘K
                 </kbd>
               </button>
@@ -349,7 +381,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                   "rounded-full p-2 transition-colors",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2",
                   "focus-visible:ring-offset-slate-950",
-                  "hover:bg-white/6 text-slate-400 hover:text-white"
+                  "hover:bg-slate-500/10 text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
                 )}
               >
                 <Keyboard className="h-4 w-4" aria-hidden="true" />
@@ -364,7 +396,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 "rounded-full p-2 transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2",
                 "focus-visible:ring-offset-slate-950",
-                "hover:bg-white/6 text-slate-400 hover:text-white"
+                "hover:bg-slate-500/10 text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
               )}
             >
               <Settings className="h-4 w-4" aria-hidden="true" />
@@ -384,6 +416,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           ref={railRef}
           role="navigation"
           aria-label="Module navigation"
+          aria-hidden={isRailInert ? true : undefined}
+          inert={isRailInert ? true : undefined}
           className={clsx(
             "flex flex-col border-e shrink-0 overflow-y-auto",
             "transition-transform duration-200 ease-out motion-reduce:transition-none",
@@ -440,7 +474,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           {/* Nav items */}
           <nav aria-label="Role modules" className="flex flex-col gap-1 px-3 pb-4">
             {navItems.map((item) => (
-              <NavLink key={item.href} item={item} pathname={pathname} onClick={closeRail} />
+              <NavLink
+                key={item.href}
+                item={item}
+                pathname={pathname}
+                allHrefs={allHrefs}
+                onClick={closeRail}
+              />
             ))}
           </nav>
 
@@ -488,3 +528,4 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+

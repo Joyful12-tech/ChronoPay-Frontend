@@ -21,6 +21,14 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => mockSearchParams,
 }));
 
+// Mock next/link to render a plain anchor while preserving the href
+vi.mock("next/link", () => ({
+  default: ({ prefetch, ...props }: any) => {
+    const { prefetch: _prefetch, ...rest } = props;
+    return <a  {...rest} />;
+  },
+}));
+
 // Mock toast to prevent warnings
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({
@@ -41,10 +49,10 @@ describe("Marketplace Page", () => {
 
   it("renders correctly with default settings (24 items)", async () => {
     render(<Marketplace />);
-    
+
     // Check main headings
     expect(screen.getByText("Marketplace")).toBeInTheDocument();
-    
+
     // Wait for seeding to complete (if any) or just wait for items to render
     await waitFor(() => {
       const items = screen.getAllByRole("listitem");
@@ -54,13 +62,13 @@ describe("Marketplace Page", () => {
 
   it("changes the number of visible items when page size is changed", async () => {
     render(<Marketplace />);
-    
-    const option12 = screen.getByRole("radio", { name: /12 results per page/i });
-    
+
+    const option12 = screen.getByRole("radio", { name: /^12 results per page/i });
+
     act(() => {
       fireEvent.click(option12);
     });
-    
+
     await waitFor(() => {
       const items = screen.getAllByRole("listitem");
       expect(items.length).toBe(12);
@@ -68,28 +76,21 @@ describe("Marketplace Page", () => {
   });
 
   it("seeds the recently viewed rail on first visit", async () => {
-    vi.useFakeTimers();
     render(<Marketplace />);
-    
-    act(() => {
-      vi.runAllTimers();
-    });
-    
+
     // Check that recently viewed rail has items
     await waitFor(() => {
       expect(screen.getByText("Recently viewed")).toBeInTheDocument();
     });
-    
+
     expect(localStorage.getItem("chronopay-marketplace-visited")).toBe("true");
-    
-    vi.useRealTimers();
   });
 
   it("does not seed recently viewed items if already visited", async () => {
     localStorage.setItem("chronopay-marketplace-visited", "true");
-    
+
     render(<Marketplace />);
-    
+
     // The rail should not appear because no items were seeded
     expect(screen.queryByText("Recently viewed")).not.toBeInTheDocument();
   });
@@ -97,9 +98,9 @@ describe("Marketplace Page", () => {
   it("handles invalid page size in URL gracefully", () => {
     // Return an invalid page size
     mockSearchParams.get.mockReturnValue("invalid");
-    
+
     render(<Marketplace />);
-    
+
     // Should fallback to default 24
     const items = screen.getAllByRole("listitem");
     expect(items.length).toBe(24);
@@ -109,13 +110,42 @@ describe("Marketplace Page", () => {
     const storageSpy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
       throw new Error("Storage disabled");
     });
-    
+
     render(<Marketplace />);
-    
+
     expect(screen.getByText("Marketplace")).toBeInTheDocument();
     const items = screen.getAllByRole("listitem");
     expect(items.length).toBe(24);
-    
+
     storageSpy.mockRestore();
+  });
+
+  it("links each card to its detail route and records it in recently viewed", async () => {
+    render(<Marketplace />);
+
+    const items = await screen.findAllByRole("listitem");
+    expect(items.length).toBe(24);
+
+    const firstItem = items[0];
+    const link = firstItem.querySelector("a[href^='/marketplace/']");
+    expect(link).not.toBeNull();
+
+    const href = link!.getAttribute("href");
+    expect(href).toMatch(/^\/marketplace\/[^/]+$/);
+    expect(href).not.toBe("/marketplace");
+
+    const id = href!.replace("/marketplace/", "");
+
+    act(() => {
+      fireEvent.click(link!);
+    });
+
+    await waitFor(() => {
+      const stored = localStorage.getItem("chronopay-marketplace-recently-viewed");
+      expect(stored).toBeTruthy();
+      const parsed = JSON.parse(stored as string);
+      expect(Array.isArray(parsed)).toBe(true);
+      expect(parsed.some((item: any) => item.id === id)).toBe(true);
+    });
   });
 });
